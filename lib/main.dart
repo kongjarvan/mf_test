@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import 'screens/host_record_screen.dart';
+import 'screens/moderator_flow.dart';
 
 void main() {
   runApp(const MafiaHostApp());
@@ -17,7 +17,7 @@ class MafiaHostApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF1B2838)),
         useMaterial3: true,
       ),
-      home: const HostRecordScreen(),
+      home: const ModeratorFlow(),
     );
   }
 }

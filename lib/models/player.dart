@@ -37,6 +37,13 @@ class Player {
     );
   }
 
-  static List<Player> createTable() =>
-      List.generate(12, (i) => Player(slot: i + 1));
+  /// 슬롯은 1부터 연속 번호.
+  static List<Player> createTable(int count) {
+    final n = count.clamp(minCount, maxCount);
+    return List.generate(n, (i) => Player(slot: i + 1));
+  }
+
+  static const int minCount = 4;
+  static const int maxCount = 14;
+  static const int defaultCount = 12;
 }
