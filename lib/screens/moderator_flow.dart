@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../models/game_role.dart';
 import '../models/host_game.dart';
+import '../models/player.dart';
+import '../utils/night_resolution.dart';
 import 'day_screen.dart';
 import 'night_screen.dart';
 import 'setup_screen.dart';
@@ -33,6 +36,16 @@ class _ModeratorFlowState extends State<ModeratorFlow> {
 
   void _goToNightFromDay() {
     setState(() {
+      final exec = _game.executionDayChoice;
+      if (exec > 0) {
+        for (final p in _game.players) {
+          if (p.slot == exec && p.alive) {
+            p.alive = false;
+            p.deathCause = '낮 처형으로 사망했습니다.';
+            break;
+          }
+        }
+      }
       _game.nightActionTargets.clear();
       _game.nightGuidanceText = '';
       _phase = ModeratorPhase.night;
@@ -40,16 +53,44 @@ class _ModeratorFlowState extends State<ModeratorFlow> {
   }
 
   void _goToDayFromNight() {
+    late NightResolutionReport nightReport;
     setState(() {
+      nightReport = applyNightResolution(_game);
+
+      // 대부가 신병/기생(현재 hostess)을 지목하면 다음 낮에 전향 처리한다.
+      for (final don in _game.players.where((p) => p.role == GameRole.don)) {
+        final raw = _game.nightActionTargets[don.slot];
+        final targetSlot = int.tryParse((raw ?? '').trim());
+        if (targetSlot == null) continue;
+        Player? target;
+        for (final p in _game.players) {
+          if (p.slot == targetSlot) {
+            target = p;
+            break;
+          }
+        }
+        if (target == null || !target.alive) continue;
+        if (target.role == GameRole.recruit) {
+          target.role = GameRole.mafiaMember;
+        } else if (target.role == GameRole.hostess) {
+          target.role = GameRole.prostitute;
+        }
+      }
+
       final d = _game.day;
       final targetLines = _game.nightActionTargets.entries
           .where((e) => e.value.trim().isNotEmpty)
           .map((e) => '${e.key}번 → ${e.value.trim()}')
           .toList();
       final g = _game.nightGuidanceText.trim();
-      if (targetLines.isNotEmpty || g.isNotEmpty) {
+      if (targetLines.isNotEmpty ||
+          g.isNotEmpty ||
+          nightReport.actionLogBlock.isNotEmpty) {
         final lines = <String>['[$d밤]', ...targetLines];
         if (g.isNotEmpty) lines.add('안내: $g');
+        if (nightReport.actionLogBlock.isNotEmpty) {
+          lines.add(nightReport.actionLogBlock);
+        }
         final block = lines.join('\n');
         _game.nightNotes = _game.nightNotes.isEmpty
             ? block
@@ -61,6 +102,37 @@ class _ModeratorFlowState extends State<ModeratorFlow> {
       _game.executionDayChoice = 0;
       _game.weatherNote = '';
       _phase = ModeratorPhase.day;
+    });
+
+    final String nightKillPopupText;
+    if (nightReport.paragraphs.isNotEmpty) {
+      nightKillPopupText = nightReport.paragraphs.join('\n\n');
+    } else if (nightReport.actionLogBlock.isNotEmpty) {
+      nightKillPopupText =
+          '${nightReport.actionLogBlock}\n\n이번 밤 야간 킬로 인한 사망·부상 없음.';
+    } else {
+      nightKillPopupText = '이번 밤 야간 킬로 인한 습격 보고는 없습니다.';
+    }
+    _game.lastNightKillPopupText = nightKillPopupText;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          title: const Text('밤 킬 현황'),
+          content: SingleChildScrollView(
+            child: Text(nightKillPopupText),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('확인'),
+            ),
+          ],
+        ),
+      );
     });
   }
 
@@ -90,29 +162,6 @@ class _ModeratorFlowState extends State<ModeratorFlow> {
     }
   }
 
-  Future<void> _confirmBackToSetup() async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('설정으로 돌아가기'),
-        content: const Text('현재 낮·밤 입력은 유지되지 않을 수 있습니다. 설정으로 돌아갈까요?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('취소'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('설정으로'),
-          ),
-        ],
-      ),
-    );
-    if (ok == true && mounted) {
-      setState(() => _phase = ModeratorPhase.setup);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return switch (_phase) {
@@ -126,7 +175,6 @@ class _ModeratorFlowState extends State<ModeratorFlow> {
           game: _game,
           onGameChanged: _tick,
           onToNight: _goToNightFromDay,
-          onBackToSetup: _confirmBackToSetup,
           onReset: _confirmReset,
         ),
       ModeratorPhase.night => NightScreen(

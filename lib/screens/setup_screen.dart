@@ -58,6 +58,10 @@ class _SetupScreenState extends State<SetupScreen> {
         p.slot,
         () => TextEditingController(text: p.name),
       );
+      final c = _nameCtrls[p.slot]!;
+      if (c.text != p.name) {
+        c.text = p.name;
+      }
     }
   }
 
@@ -95,6 +99,7 @@ class _SetupScreenState extends State<SetupScreen> {
 
   @override
   Widget build(BuildContext context) {
+    _ensureNameControllers();
     final theme = Theme.of(context);
 
     return Scaffold(

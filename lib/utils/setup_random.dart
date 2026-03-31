@@ -12,7 +12,7 @@ const List<GameRole> kStandardTwelveUniqueRoles = [
   GameRole.courier,
   GameRole.doctor,
   GameRole.soldier,
-  GameRole.parasite,
+  GameRole.hostess,
   GameRole.vigilante,
   GameRole.recruit,
   GameRole.busDriver,

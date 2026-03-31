@@ -9,6 +9,7 @@ class Player {
     this.alive = true,
     this.notes = '',
     this.vigilanteKillsLeft = 2,
+    this.deathCause,
   });
 
   final int slot;
@@ -16,6 +17,9 @@ class Player {
   GameRole role;
   bool alive;
   String notes;
+
+  /// 사망 시 사유(야간 해석 등). 생존이면 null.
+  String? deathCause;
 
   /// 자경단원 전용. 직업이 자경이 아니면 무시해도 된다.
   int vigilanteKillsLeft;
@@ -26,6 +30,7 @@ class Player {
     bool? alive,
     String? notes,
     int? vigilanteKillsLeft,
+    String? deathCause,
   }) {
     return Player(
       slot: slot,
@@ -34,6 +39,7 @@ class Player {
       alive: alive ?? this.alive,
       notes: notes ?? this.notes,
       vigilanteKillsLeft: vigilanteKillsLeft ?? this.vigilanteKillsLeft,
+      deathCause: deathCause ?? this.deathCause,
     );
   }
 

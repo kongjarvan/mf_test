@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../models/game_role.dart';
@@ -11,15 +13,13 @@ class DayScreen extends StatefulWidget {
     required this.game,
     required this.onGameChanged,
     required this.onToNight,
-    required this.onBackToSetup,
     required this.onReset,
   });
 
   final HostGame game;
   final VoidCallback onGameChanged;
   final VoidCallback onToNight;
-  final Future<void> Function() onBackToSetup;
-  final Future<void> Function() onReset;
+  final Future<void> Function() onReset; 
 
   @override
   State<DayScreen> createState() => _DayScreenState();
@@ -27,6 +27,7 @@ class DayScreen extends StatefulWidget {
 
 class _DayScreenState extends State<DayScreen> {
   late final TextEditingController _weatherCtrl;
+  bool _showNamesOnSeats = false;
 
   HostGame get _g => widget.game;
 
@@ -60,41 +61,122 @@ class _DayScreenState extends State<DayScreen> {
     widget.onGameChanged();
   }
 
-  void _toggleRoleVisibility() {
-    setState(() {
-      _g.revealRolesDuringGame = !_g.revealRolesDuringGame;
-    });
-    widget.onGameChanged();
+  String _seatLabel(Player p) {
+    if (!_showNamesOnSeats) return '${p.slot}';
+    final name = p.name.trim();
+    return name.isEmpty ? '${p.slot}번' : name;
+  }
+
+  Color _roleColor(Player p, ThemeData theme) {
+    if (p.role == GameRole.serialKiller) {
+      return Colors.pink;
+    }
+    if (p.role.faction == Faction.mafia) {
+      return Colors.red;
+    }
+    if (p.role.faction == Faction.citizen) {
+      return Colors.green;
+    }
+    return theme.colorScheme.onSurface;
+  }
+
+  Future<void> _showPlayerDetail(Player p) async {
+    final roleLabel = _g.formatRoleLabel(p.role);
+    final name = p.name.trim().isEmpty ? '${p.slot}번' : p.name;
+    final theme = Theme.of(context);
+    final roleColor = _roleColor(p, theme);
+    await showDialog<void>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text('${p.slot}번 · $name'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              RichText(
+                text: TextSpan(
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontSize: 20,
+                    color: theme.colorScheme.onSurface,
+                  ),
+                  children: [
+                    TextSpan(
+                      text: '직업: ',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w600,
+                        color: theme.colorScheme.onSurface,
+                      ),
+                    ),
+                    TextSpan(
+                      text: roleLabel,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: roleColor,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (!p.alive) ...[
+                const SizedBox(height: 12),
+                Text(
+                  p.deathCause != null && p.deathCause!.trim().isNotEmpty
+                      ? '사망: ${p.deathCause}'
+                      : '사망 사유가 기록되지 않았습니다.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('닫기'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showLastNightKillPopup() {
+    final text = _g.lastNightKillPopupText;
+    if (text == null || text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('표시할 전날 밤 킬 기록이 없습니다.')),
+      );
+      return;
+    }
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('밤 킬 현황'),
+        content: SingleChildScrollView(child: Text(text)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('확인'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final m = _g.countAliveByFaction(Faction.mafia);
-    final c = _g.countAliveByFaction(Faction.citizen);
-    final n = _g.countAliveByFaction(Faction.neutral);
-
     final aliveSlots = _g.players.where((p) => p.alive).toList();
 
     return Scaffold(
       appBar: AppBar(
         title: Text('낮 · ${_g.day}일차'),
-        leading: IconButton(
-          icon: const Icon(Icons.settings),
-          tooltip: '설정으로',
-          onPressed: widget.onBackToSetup,
-        ),
+        automaticallyImplyLeading: false,
         actions: [
-          IconButton(
-            tooltip:
-                _g.revealRolesDuringGame ? '직업 숨기기' : '직업 보기',
-            onPressed: _toggleRoleVisibility,
-            icon: Icon(
-              _g.revealRolesDuringGame
-                  ? Icons.visibility_off
-                  : Icons.visibility,
-            ),
-          ),
           IconButton(
             tooltip: '전체 초기화',
             onPressed: widget.onReset,
@@ -103,42 +185,116 @@ class _DayScreenState extends State<DayScreen> {
         ],
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+        padding: const EdgeInsets.fromLTRB(10, 6, 10, 24),
         children: [
-          Wrap(
-            spacing: 10,
-            runSpacing: 8,
+          Row(
             children: [
-              Chip(
-                avatar: const Icon(Icons.groups, size: 18),
-                label: Text('생존 ${_g.aliveCount}/${_g.players.length}'),
+              Text('인원 현황', style: theme.textTheme.titleMedium),
+              const Spacer(),
+              IconButton(
+                tooltip: '전날 밤 킬 현황',
+                onPressed: _showLastNightKillPopup,
+                icon: const Icon(Icons.article_outlined),
               ),
-              Chip(label: Text('마피아 $m')),
-              Chip(label: Text('시민 $c')),
-              Chip(label: Text('중립 $n')),
+              IconButton(
+                tooltip: _showNamesOnSeats ? '번호로 보기' : '이름으로 보기',
+                onPressed: () {
+                  setState(() => _showNamesOnSeats = !_showNamesOnSeats);
+                },
+                icon: Icon(
+                  _showNamesOnSeats ? Icons.tag : Icons.badge_outlined,
+                ),
+              ),
             ],
           ),
-          const SizedBox(height: 16),
-          Text('인원 현황', style: theme.textTheme.titleMedium),
           const SizedBox(height: 8),
-          ..._g.players.map((p) => Card(
-                margin: const EdgeInsets.only(bottom: 6),
-                child: ListTile(
-                  leading: CircleAvatar(child: Text('${p.slot}')),
-                  title: Text(
-                    p.name.trim().isEmpty ? '${p.slot}번' : p.name,
-                    style: TextStyle(
-                      decoration:
-                          p.alive ? null : TextDecoration.lineThrough,
-                    ),
-                  ),
-                  subtitle: Text(_g.formatRoleLabel(p.role)),
-                  trailing: Switch(
-                    value: p.alive,
-                    onChanged: (v) => _setAlive(p, v),
-                  ),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(8),
+              child: AspectRatio(
+                aspectRatio: 1,
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final size = constraints.biggest;
+                    final center = Offset(size.width / 2, size.height / 2);
+                    final playerCount = _g.players.length;
+                    final seatRadius = math.min(size.width, size.height) * 0.075;
+                    final tableRadius = math.min(size.width, size.height) * 0.31;
+                    final chairDistance = tableRadius + seatRadius * 1.2;
+
+                    return Stack(
+                      children: [
+                        Positioned.fill(
+                          child: CustomPaint(
+                            painter: _RoundTablePainter(
+                              center: center,
+                              radius: tableRadius,
+                              color: theme.colorScheme.surfaceContainerHighest,
+                              borderColor: theme.colorScheme.outlineVariant,
+                            ),
+                          ),
+                        ),
+                        ...List.generate(playerCount, (index) {
+                          final p = _g.players[index];
+                          final angle =
+                              (-math.pi / 2) + (2 * math.pi * index / playerCount);
+                          final position = Offset(
+                            center.dx + chairDistance * math.cos(angle),
+                            center.dy + chairDistance * math.sin(angle),
+                          );
+                          final left = position.dx - seatRadius;
+                          final top = position.dy - seatRadius;
+
+                          return Positioned(
+                            left: left,
+                            top: top,
+                            child: GestureDetector(
+                              onTap: () => _showPlayerDetail(p),
+                              child: Container(
+                                width: seatRadius * 2,
+                                height: seatRadius * 2,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: p.alive
+                                      ? theme.colorScheme.primaryContainer
+                                      : const Color(0xFFBDBDBD),
+                                  border: Border.all(
+                                    color: p.alive
+                                        ? theme.colorScheme.primary
+                                        : const Color(0xFF9E9E9E),
+                                    width: 1.5,
+                                  ),
+                                ),
+                                alignment: Alignment.center,
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                                  child: FittedBox(
+                                    fit: BoxFit.scaleDown,
+                                    child: Text(
+                                      _seatLabel(p),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: theme.textTheme.labelLarge?.copyWith(
+                                        fontWeight: FontWeight.w700,
+                                        color: p.alive
+                                            ? theme.colorScheme.onPrimaryContainer
+                                            : const Color(0xFF616161),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          );
+                        }),
+                      ],
+                    );
+                  },
                 ),
-              )),
+              ),
+            ),
+          ),
+          
           const SizedBox(height: 16),
           Text('날씨', style: theme.textTheme.titleMedium),
           const SizedBox(height: 4),
@@ -238,5 +394,41 @@ class _DayScreenState extends State<DayScreen> {
         ],
       ),
     );
+  }
+}
+
+class _RoundTablePainter extends CustomPainter {
+  _RoundTablePainter({
+    required this.center,
+    required this.radius,
+    required this.color,
+    required this.borderColor,
+  });
+
+  final Offset center;
+  final double radius;
+  final Color color;
+  final Color borderColor;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final fillPaint = Paint()
+      ..style = PaintingStyle.fill
+      ..color = color;
+    final borderPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2
+      ..color = borderColor;
+
+    canvas.drawCircle(center, radius, fillPaint);
+    canvas.drawCircle(center, radius, borderPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _RoundTablePainter oldDelegate) {
+    return oldDelegate.center != center ||
+        oldDelegate.radius != radius ||
+        oldDelegate.color != color ||
+        oldDelegate.borderColor != borderColor;
   }
 }

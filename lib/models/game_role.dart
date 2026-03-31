@@ -8,7 +8,7 @@ enum GameRole {
   courier,
   doctor,
   soldier,
-  parasite,
+  hostess,
   prostitute,
   vigilante,
   recruit,
@@ -28,7 +28,7 @@ extension GameRoleX on GameRole {
         GameRole.courier => '배달부',
         GameRole.doctor => '의사',
         GameRole.soldier => '군인',
-        GameRole.parasite => '기생',
+        GameRole.hostess => '기생',
         GameRole.prostitute => '매춘부',
         GameRole.vigilante => '자경단원',
         GameRole.recruit => '신병',
@@ -40,7 +40,8 @@ extension GameRoleX on GameRole {
         GameRole.unassigned => Faction.none,
         GameRole.don ||
         GameRole.underboss ||
-        GameRole.mafiaMember =>
+        GameRole.mafiaMember ||
+        GameRole.prostitute =>
           Faction.mafia,
         GameRole.serialKiller => Faction.neutral,
         _ => Faction.citizen,
@@ -57,7 +58,7 @@ const List<GameRole> kGameRolePickerOrder = [
   GameRole.courier,
   GameRole.doctor,
   GameRole.soldier,
-  GameRole.parasite,
+  GameRole.hostess,
   GameRole.prostitute,
   GameRole.vigilante,
   GameRole.recruit,

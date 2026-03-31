@@ -18,7 +18,7 @@ class HostGame {
 
   List<Player> players;
 
-  /// 낮·밤 화면에서 직업 텍스트를 보일지. `false`면 가림(기본: 가림).
+  /// 기존 호환용 플래그(현재는 직업을 항상 표시).
   bool revealRolesDuringGame;
   int day;
   String nightNotes;
@@ -40,8 +40,17 @@ class HostGame {
   /// 밤 행동 대상 기록: 슬롯 → 자유 입력(이름·번호 등)
   Map<int, String> nightActionTargets;
 
+  /// 직전 밤→낮 전환 시 표시했던 「밤 킬 현황」 팝업 본문(낮에서 다시 보기용).
+  String? lastNightKillPopupText;
+
   void reset() {
+    final savedNames = players.map((p) => p.name).toList();
     players = Player.createTable(players.length);
+    for (var i = 0; i < players.length; i++) {
+      if (i < savedNames.length) {
+        players[i].name = savedNames[i];
+      }
+    }
     day = 1;
     nightNotes = '';
     dayNotes = '';
@@ -50,12 +59,12 @@ class HostGame {
     nightGuidanceText = '';
     nightActionTargets.clear();
     revealRolesDuringGame = false;
+    lastNightKillPopupText = null;
   }
 
-  /// 사회자에게만 보이는 직업 문자열(가림 시 마스크).
+  /// 직업 문자열은 항상 표시.
   String formatRoleLabel(GameRole role) {
-    if (revealRolesDuringGame) return role.label;
-    return '· · ·';
+    return role.label;
   }
 
   /// 인원을 바꾼다. 줄이면 **맨 뒤 슬롯**부터 제거된다.
