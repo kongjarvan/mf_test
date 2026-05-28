@@ -103,11 +103,11 @@ class HostGame {
     final mafiaWins =
         aliveMafia > 0 && aliveMafia >= (aliveCitizen + aliveNeutral);
 
-    if (!citizenWins && !mafiaWins) return null;
-
     // 좀비는 최우선: 조건 충족 시 단독 승리(연쇄살인마·마녀·마피아·시민 모두 제침).
     // 연쇄살인마·마녀는 좀비가 없을 때 트리거 세력과 공동 승리.
     final zombieWins = aliveZombie > 0 && aliveZombie * 2 >= total;
+
+    if (!citizenWins && !mafiaWins && !zombieWins) return null;
 
     final winners = <String>[];
     if (zombieWins) {
@@ -115,10 +115,13 @@ class HostGame {
     } else {
       final skWins = players.any((p) => p.alive && p.role == GameRole.serialKiller);
       final witchWins = players.any((p) => p.alive && p.role == GameRole.witch);
-      if (skWins) winners.add('연쇄 살인마');
-      if (witchWins) winners.add('마녀');
-      if (mafiaWins) winners.add('마피아팀');
-      if (citizenWins) winners.add('시민팀');
+      if (skWins || witchWins) {
+        if (skWins) winners.add('연쇄 살인마');
+        if (witchWins) winners.add('마녀');
+      } else {
+        if (mafiaWins) winners.add('마피아팀');
+        if (citizenWins) winners.add('시민팀');
+      }
     }
 
     return VictoryResult(winners: winners);

@@ -120,18 +120,17 @@ _NightComputed _computeNight(HostGame game) {
   }
   logKillRole(GameRole.vigilante, vigActor);
 
-  Player? zombieActor;
-  int? zombieMarkResolved;
+  // 좀비 슬롯 → 표식 슬롯 (여러 좀비 모두 처리)
+  final zombieMarks = <int, int>{};
   for (final z in players.where((x) => x.alive && x.role == GameRole.zombie)) {
     if (isSealed(z)) continue;
     final raw = plan.effectiveTargetsForSlot(z.slot, z.role);
     if (raw.isEmpty) continue;
-    zombieActor = z;
-    zombieMarkResolved = plan.mapSlot(raw.first);
+    final markedSlot = plan.mapSlot(raw.first);
+    zombieMarks[z.slot] = markedSlot;
     logLines.add(
-      '좀비: ${displayNameSlot(zombieMarkResolved)}에게 표식(사망 시 좀비로 부활)',
+      '좀비: ${displayNameSlot(markedSlot)}에게 표식(사망 시 좀비로 부활)',
     );
-    break;
   }
 
   final actionLogBlock = logLines.isEmpty
@@ -200,6 +199,7 @@ _NightComputed _computeNight(HostGame game) {
       if (e[0] != victimSlot) continue;
       final attacker = bySlot(e[1]);
       if (attacker == null) return '야간 킬로 사망했습니다.';
+      if (e[1] == victimSlot) return '버스 기사의 능력으로 인해 자신의 킬에 치여 사망했습니다.';
       switch (attacker.role) {
         case GameRole.mafiaMember:
           return '마피아의 야간 킬로 사망했습니다.';
@@ -271,11 +271,12 @@ _NightComputed _computeNight(HostGame game) {
   // 좀비 부활은 킬 1건일 때만 유효 — 의사 규칙과 동일.
   // 같은 밤 자경단원·연쇄살인마 등 추가 킬이 겹치면 사망 처리.
   final reviveAsZombieSlots = <int>{};
-  if (zombieMarkResolved != null &&
-      pendingDeaths.containsKey(zombieMarkResolved) &&
-      (killCount[zombieMarkResolved] ?? 0) == 1) {
-    reviveAsZombieSlots.add(zombieMarkResolved);
-    pendingDeaths.remove(zombieMarkResolved);
+  for (final markedSlot in zombieMarks.values) {
+    if (pendingDeaths.containsKey(markedSlot) &&
+        (killCount[markedSlot] ?? 0) == 1) {
+      reviveAsZombieSlots.add(markedSlot);
+      pendingDeaths.remove(markedSlot);
+    }
   }
 
   final victimParagraphs = <String>[];
@@ -291,7 +292,6 @@ _NightComputed _computeNight(HostGame game) {
     final healedHere = doctorHealSlot == slot;
 
     if (reviveAsZombieSlots.contains(slot)) {
-      final marker = zombieActor == null ? '좀비' : displayName(zombieActor);
       victimParagraphs.add(
         '$name이 습격 당하였습니다.\n그러나 의사의 도움으로 $name은 살아남았습니다.',
       );
@@ -311,9 +311,14 @@ _NightComputed _computeNight(HostGame game) {
       continue;
     }
 
+    final isBusSelfKill = killEvents.any((e) => e[0] == slot && e[1] == slot);
     if (healedHere) {
       victimParagraphs.add(
         '$name이 습격 당하였습니다.\n그러나 의사의 도움으로 $name은 살아남았습니다.',
+      );
+    } else if (isBusSelfKill) {
+      victimParagraphs.add(
+        '$name이 버스에 치여 사망하였습니다.',
       );
     } else {
       victimParagraphs.add(
