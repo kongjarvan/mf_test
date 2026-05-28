@@ -5,6 +5,9 @@ import 'package:flutter/material.dart';
 import '../models/game_role.dart';
 import '../models/host_game.dart';
 import '../models/player.dart';
+import '../utils/night_resolution.dart';
+import '../utils/night_targets.dart';
+import '../widgets/roster_seat_display_mode.dart';
 
 /// 밤: 생존자별 행동 대상 입력, 안내 문구(플레이스홀더), 낮(다음 일차)으로.
 class NightScreen extends StatefulWidget {
@@ -28,12 +31,13 @@ class NightScreen extends StatefulWidget {
 }
 
 class _NightScreenState extends State<NightScreen> {
-  bool _showNamesOnSeats = false;
+  RosterSeatDisplayMode _seatDisplayMode = RosterSeatDisplayMode.slotAndName;
 
   HostGame get _g => widget.game;
 
   Color _roleColor(Player p) {
     if (p.role == GameRole.serialKiller) return Colors.pink;
+    if (p.role.faction == Faction.zombie) return const Color(0xFF6D4C41);
     if (p.role.faction == Faction.mafia) return Colors.red;
     if (p.role.faction == Faction.citizen) return Colors.green;
     return Colors.white70;
@@ -41,6 +45,7 @@ class _NightScreenState extends State<NightScreen> {
 
   Color _roleTextColor(GameRole role) {
     if (role == GameRole.serialKiller) return Colors.pink;
+    if (role.faction == Faction.zombie) return const Color(0xFF8D6E63);
     if (role.faction == Faction.mafia) return Colors.red;
     if (role.faction == Faction.citizen) return Colors.green;
     return Colors.white;
@@ -74,60 +79,27 @@ class _NightScreenState extends State<NightScreen> {
   }
 
   String _seatLabel(Player p) {
-    if (!_showNamesOnSeats) return '${p.slot}';
-    final name = p.name.trim();
-    return name.isEmpty ? '${p.slot}번' : name;
+    switch (_seatDisplayMode) {
+      case RosterSeatDisplayMode.slotAndName:
+        final name = p.name.trim();
+        return name.isEmpty ? '${p.slot}번' : '${p.slot}번 $name';
+      case RosterSeatDisplayMode.roleLabel:
+        return _g.formatRoleLabel(p.role);
+    }
   }
 
   String _playerDisplayNameBySlot(int slot) {
     final p = _g.players.firstWhere((x) => x.slot == slot);
     final name = p.name.trim();
-    return name.isEmpty ? '${slot}번' : name;
+    return name.isEmpty ? '$slot번' : name;
   }
 
   GameRole _playerRoleBySlot(int slot) => _g.players.firstWhere((x) => x.slot == slot).role;
 
-  List<List<int>> _buildBusSwaps() {
-    final swaps = <List<int>>[];
-    for (final bus in _g.players.where((p) => p.alive && p.role == GameRole.busDriver)) {
-      final targets = _parseNightTargets(bus);
-      if (targets.length >= 2) {
-        swaps.add([targets[0], targets[1]]);
-      }
-    }
-    return swaps;
-  }
-
-  int _mapSlotByBusSwaps(int slot, List<List<int>> busSwaps) {
-    var mapped = slot;
-    for (final pair in busSwaps) {
-      final a = pair[0];
-      final b = pair[1];
-      if (mapped == a) {
-        mapped = b;
-      } else if (mapped == b) {
-        mapped = a;
-      }
-    }
-    return mapped;
-  }
-
-  Set<int> _buildSealedSlots(List<List<int>> busSwaps) {
-    final sealed = <int>{};
-    for (final hostess in _g.players.where(
-      (x) => x.alive && (x.role == GameRole.hostess || x.role == GameRole.prostitute),
-    )) {
-      final targets = _parseNightTargets(hostess);
-      if (targets.isNotEmpty) {
-        sealed.add(_mapSlotByBusSwaps(targets.first, busSwaps));
-      }
-    }
-    return sealed;
-  }
-
   String _actionSummary(_NightActionPreview action) {
     final actorName = _playerDisplayNameBySlot(action.actorSlot);
     final targetNames = action.targetSlots.map(_playerDisplayNameBySlot).toList();
+
     final isKillRole = action.role == GameRole.mafiaMember ||
         action.role == GameRole.vigilante ||
         action.role == GameRole.serialKiller;
@@ -141,7 +113,7 @@ class _NightScreenState extends State<NightScreen> {
       return '${action.order}. ${action.role.label}가 ${targetNames[0]} ${targetNames[1]}에게 능력 사용';
     }
     if (targetNames.isEmpty) {
-      return '${action.order}. ${action.role.label}(${actorName}) 행동 없음';
+      return '${action.order}. ${action.role.label}($actorName) 행동 없음';
     }
     return '${action.order}. ${action.role.label}이 ${targetNames.first}에게 능력 사용';
   }
@@ -151,6 +123,43 @@ class _NightScreenState extends State<NightScreen> {
       fontSize: (Theme.of(context).textTheme.bodyLarge?.fontSize ?? 16) + 1,
       color: Theme.of(context).colorScheme.onSurface,
     );
+    if (action.role == GameRole.witch) {
+      if (action.targetSlots.length < 2) {
+        return TextSpan(
+          text: '(비공개 · 플레이어에게 불공개)\n'
+              '마녀의 행동은 플레이어에게 알려지지 않습니다.\n'
+              '조종할 플레이어와 능력 사용 대상을 모두 선택해야 합니다.',
+          style: baseStyle,
+        );
+      }
+      final controlled = _playerDisplayNameBySlot(action.targetSlots[0]);
+      final forced = _playerDisplayNameBySlot(action.targetSlots[1]);
+      return TextSpan(
+        text: '(비공개 · 플레이어에게 불공개)\n'
+            '마녀의 행동은 플레이어에게 알려지지 않습니다.\n\n'
+            '사회자 참고: $controlled가 사용하는 단일 대상 능력의 첫 지목을 $forced(으)로 강제합니다.',
+        style: baseStyle,
+      );
+    }
+    if (action.role == GameRole.zombie) {
+      if (action.targetSlots.isEmpty) {
+        return TextSpan(text: '', style: baseStyle);
+      }
+      final marked = action.targetSlots.first;
+      if (!zombieMarkedVictimRevivesTonight(_g, marked)) {
+        return TextSpan(
+          text: '(비공개 · 플레이어에게 전달하지 않음)\n'
+              '표식 대상은 이번 밤 야간 킬로 사망하지 않았습니다. 좀비 부활 안내 문구는 읽어주지 않습니다.',
+          style: baseStyle,
+        );
+      }
+      return TextSpan(
+        text: '(지정된 대상에게 전달)\n'
+            '당신은 사망 후 좀비로 되살아났습니다.\n'
+            '당신의 직업은 이제 좀비 입니다',
+        style: baseStyle,
+      );
+    }
     if (action.role == GameRole.mafiaMember ||
         action.role == GameRole.vigilante ||
         action.role == GameRole.serialKiller) {
@@ -234,8 +243,8 @@ class _NightScreenState extends State<NightScreen> {
         );
       }
 
-      final busSwaps = _buildBusSwaps();
-      final sealedSlots = _buildSealedSlots(busSwaps);
+      final plan = buildNightTargetPlan(_g);
+      final sealedSlots = plan.sealedSlots;
       final aliveMafiaMemberCount = _g.players
           .where((p) => p.alive && p.role == GameRole.mafiaMember)
           .length;
@@ -251,13 +260,13 @@ class _NightScreenState extends State<NightScreen> {
           observed.role != GameRole.recruit &&
           observed.role != GameRole.soldier &&
           !(observed.role == GameRole.vigilante && observed.vigilanteKillsLeft <= 0)) {
-        final raw = _parseNightTargets(observed);
+        final raw = plan.effectiveTargetsForSlot(observed.slot, observed.role);
         if (observed.role == GameRole.busDriver) {
           if (raw.isNotEmpty) {
             visited = [raw.first];
           }
         } else {
-          visited = raw.map((slot) => _mapSlotByBusSwaps(slot, busSwaps)).toList();
+          visited = raw.map(plan.mapSlot).toList();
         }
       }
 
@@ -312,55 +321,32 @@ class _NightScreenState extends State<NightScreen> {
   }
 
   List<_NightActionPreview> _buildNightActionPreviews() {
+    final plan = buildNightTargetPlan(_g);
     const actionOrder = <GameRole, int>{
-      GameRole.busDriver: 1,
-      GameRole.hostess: 2,
-      GameRole.prostitute: 2,
-      GameRole.don: 3,
-      GameRole.detective: 3,
-      GameRole.underboss: 3,
-      GameRole.doctor: 4,
-      GameRole.mafiaMember: 5,
-      GameRole.vigilante: 6,
-      GameRole.serialKiller: 7,
-      GameRole.courier: 8,
+      GameRole.witch: 1,
+      GameRole.busDriver: 2,
+      GameRole.hostess: 3,
+      GameRole.prostitute: 3,
+      GameRole.don: 4,
+      GameRole.detective: 4,
+      GameRole.underboss: 4,
+      GameRole.doctor: 5,
+      GameRole.zombie: 6,
+      GameRole.mafiaMember: 7,
+      GameRole.vigilante: 8,
+      GameRole.serialKiller: 9,
+      GameRole.courier: 10,
     };
     final list = <_NightActionPreview>[];
-    final busSwaps = <List<int>>[];
-    for (final bus in _g.players.where(
-      (p) => p.alive && p.role == GameRole.busDriver,
-    )) {
-      final targets = _parseNightTargets(bus);
-      if (targets.length >= 2) {
-        busSwaps.add([targets[0], targets[1]]);
-      }
-    }
-
-    int applyBusSwaps(int slot) {
-      var mapped = slot;
-      for (final pair in busSwaps) {
-        final a = pair[0];
-        final b = pair[1];
-        if (mapped == a) {
-          mapped = b;
-        } else if (mapped == b) {
-          mapped = a;
-        }
-      }
-      return mapped;
-    }
 
     final aliveMafiaMemberCount = _g.players
         .where((p) => p.alive && p.role == GameRole.mafiaMember)
         .length;
-    final sealedSlots = <int>{};
-    for (final hostess in _g.players.where(
-      (x) => x.alive && (x.role == GameRole.hostess || x.role == GameRole.prostitute),
-    )) {
-      final targets = _parseNightTargets(hostess);
-      if (targets.isNotEmpty) {
-        sealedSlots.add(applyBusSwaps(targets.first));
-      }
+
+    bool isSealed(Player p) {
+      if (p.role == GameRole.busDriver) return false;
+      if (p.role == GameRole.mafiaMember && aliveMafiaMemberCount >= 2) return false;
+      return plan.sealedSlots.contains(p.slot);
     }
 
     for (final p in _g.players.where((x) => x.alive)) {
@@ -368,23 +354,26 @@ class _NightScreenState extends State<NightScreen> {
       if (order == null) continue;
       final isHostessImmuneMafiaMember =
           p.role == GameRole.mafiaMember && aliveMafiaMemberCount >= 2;
-      if (sealedSlots.contains(p.slot) &&
+      if (isSealed(p) &&
           p.role != GameRole.busDriver &&
           !isHostessImmuneMafiaMember) {
         continue;
       }
-      final rawTargets = _parseNightTargets(p);
-      final targets = p.role == GameRole.busDriver
+      final rawTargets = plan.effectiveTargetsForSlot(p.slot, p.role);
+      final dualTargetRole =
+          p.role == GameRole.busDriver || p.role == GameRole.witch;
+      final targets = dualTargetRole
           ? rawTargets
-          : rawTargets.map(applyBusSwaps).toList();
-      if (p.role == GameRole.busDriver && targets.length < 2) continue;
-      if (p.role != GameRole.busDriver && targets.isEmpty) continue;
+          : rawTargets.map(plan.mapSlot).toList();
+      if (dualTargetRole && targets.length < 2) continue;
+      if (!dualTargetRole && targets.isEmpty) continue;
       list.add(
         _NightActionPreview(
           order: order,
           actorSlot: p.slot,
           role: p.role,
-          targetSlots: p.role == GameRole.busDriver ? targets.take(2).toList() : [targets.first],
+          targetSlots:
+              dualTargetRole ? targets.take(2).toList() : [targets.first],
         ),
       );
     }
@@ -551,6 +540,71 @@ class _NightScreenState extends State<NightScreen> {
                       setDialogState(() {});
                     },
                   ),
+                ] else if (p.role == GameRole.witch) ...[
+                  DropdownButtonFormField<int?>(
+                    key: ValueKey(
+                      'night_witch_a_${p.slot}_${_g.nightActionTargets[p.slot] ?? ''}',
+                    ),
+                    initialValue:
+                        _parseNightTargets(p).isNotEmpty ? _parseNightTargets(p)[0] : null,
+                    decoration: const InputDecoration(
+                      labelText: '조종할 플레이어',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                    items: [
+                      const DropdownMenuItem<int?>(value: null, child: Text('선택 안 함')),
+                      ..._g.players.map(
+                        (target) => DropdownMenuItem<int?>(
+                          value: target.slot,
+                          child: Text(
+                            '${target.slot}번 ${target.name.trim().isEmpty ? '' : '· ${target.name}'}',
+                          ),
+                        ),
+                      ),
+                    ],
+                    onChanged: (first) {
+                      final parsed = _parseNightTargets(p);
+                      final second = parsed.length >= 2 ? parsed[1] : null;
+                      final normalizedSecond = second == first ? null : second;
+                      _saveNightTargets(p, [first, normalizedSecond]);
+                      setDialogState(() {});
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<int?>(
+                    key: ValueKey(
+                      'night_witch_b_${p.slot}_${_g.nightActionTargets[p.slot] ?? ''}',
+                    ),
+                    initialValue: _parseNightTargets(p).length >= 2
+                        ? _parseNightTargets(p)[1]
+                        : null,
+                    decoration: const InputDecoration(
+                      labelText: '능력 사용 대상',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                    items: [
+                      const DropdownMenuItem<int?>(value: null, child: Text('선택 안 함')),
+                      ..._g.players.map(
+                        (target) => DropdownMenuItem<int?>(
+                          value: target.slot,
+                          enabled: target.slot !=
+                              (_parseNightTargets(p).isNotEmpty ? _parseNightTargets(p)[0] : null),
+                          child: Text(
+                            '${target.slot}번 ${target.name.trim().isEmpty ? '' : '· ${target.name}'}',
+                          ),
+                        ),
+                      ),
+                    ],
+                    onChanged: (second) {
+                      final parsed = _parseNightTargets(p);
+                      final first = parsed.isNotEmpty ? parsed[0] : null;
+                      final normalizedSecond = second == first ? null : second;
+                      _saveNightTargets(p, [first, normalizedSecond]);
+                      setDialogState(() {});
+                    },
+                  ),
                 ] else
                   DropdownButtonFormField<int?>(
                     key: ValueKey(
@@ -644,12 +698,12 @@ class _NightScreenState extends State<NightScreen> {
               ),
               const Spacer(),
               IconButton(
-                tooltip: _showNamesOnSeats ? '번호로 보기' : '이름으로 보기',
+                tooltip: _seatDisplayMode.tooltipNext,
                 onPressed: () {
-                  setState(() => _showNamesOnSeats = !_showNamesOnSeats);
+                  setState(() => _seatDisplayMode = _seatDisplayMode.next);
                 },
                 icon: Icon(
-                  _showNamesOnSeats ? Icons.tag : Icons.badge_outlined,
+                  _seatDisplayMode.icon,
                   color: Colors.white,
                 ),
               ),

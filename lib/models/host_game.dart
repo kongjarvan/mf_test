@@ -8,7 +8,6 @@ class HostGame {
     this.day = 1,
     this.nightNotes = '',
     this.dayNotes = '',
-    this.weatherNote = '',
     this.executionDayChoice = 0,
     this.nightGuidanceText = '',
     Map<int, String>? nightActionTargets,
@@ -23,9 +22,6 @@ class HostGame {
   int day;
   String nightNotes;
   String dayNotes;
-
-  /// 낮 화면 — 날씨(규칙 확정 후 연결 예정)
-  String weatherNote;
 
   /// 낮 처형 결정. **0** = 아직 선택 안 함(밤으로 불가), **-1** = 처형 없음, **양수** = 처형 슬롯.
   int executionDayChoice;
@@ -54,7 +50,6 @@ class HostGame {
     day = 1;
     nightNotes = '';
     dayNotes = '';
-    weatherNote = '';
     executionDayChoice = 0;
     nightGuidanceText = '';
     nightActionTargets.clear();

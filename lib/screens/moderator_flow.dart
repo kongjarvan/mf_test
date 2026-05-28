@@ -100,7 +100,6 @@ class _ModeratorFlowState extends State<ModeratorFlow> {
       _game.nightGuidanceText = '';
       _game.day++;
       _game.executionDayChoice = 0;
-      _game.weatherNote = '';
       _phase = ModeratorPhase.day;
     });
 

@@ -1,6 +1,7 @@
 import '../models/game_role.dart';
 import '../models/host_game.dart';
 import '../models/player.dart';
+import 'night_targets.dart';
 
 /// [applyNightResolution] 결과 — 낮 전환 시 팝업·밤 기록에 사용.
 class NightResolutionReport {
@@ -12,15 +13,33 @@ class NightResolutionReport {
   /// 빈이면 팝업 생략 가능
   final List<String> paragraphs;
 
-  /// [야간 킬 행동] 등, nightNotes에 붙일 블록(빈 문자열 가능)
+  /// [야간 행동] 등, nightNotes에 붙일 블록(빈 문자열 가능)
   final String actionLogBlock;
 
   bool get hasPopupContent => paragraphs.isNotEmpty;
 }
 
-/// 밤 종료 시 야간 킬·의사·중복 킬·대부 면역·군인 동귀어진을 반영해 [Player.alive]를 갱신한다.
-NightResolutionReport applyNightResolution(HostGame game) {
+class _NightComputed {
+  _NightComputed({
+    required this.actionLogBlock,
+    required this.paragraphs,
+    required this.pendingDeaths,
+    required this.reviveAsZombieSlots,
+    required this.vigilanteKillsAfter,
+  });
+
+  final String actionLogBlock;
+  final List<String> paragraphs;
+  final Map<int, String> pendingDeaths;
+  final Set<int> reviveAsZombieSlots;
+  final Map<int, int> vigilanteKillsAfter;
+}
+
+/// 플레이어 상태를 바꾸지 않고 밤 해소를 계산한다. [applyNightResolution]과 동일 규칙.
+_NightComputed _computeNight(HostGame game) {
   final players = game.players;
+  final plan = buildNightTargetPlan(game);
+
   Player? bySlot(int slot) {
     for (final p in players) {
       if (p.slot == slot) return p;
@@ -38,65 +57,31 @@ NightResolutionReport applyNightResolution(HostGame game) {
     return p == null ? '$slot번' : displayName(p);
   }
 
-  List<int> parseTargets(String? raw) {
-    if (raw == null || raw.trim().isEmpty) return const [];
-    return raw
-        .split(',')
-        .map((e) => int.tryParse(e.trim()))
-        .whereType<int>()
-        .toList();
-  }
-
-  final busSwaps = <List<int>>[];
-  for (final bus in players.where((p) => p.alive && p.role == GameRole.busDriver)) {
-    final t = parseTargets(game.nightActionTargets[bus.slot]);
-    if (t.length >= 2) {
-      busSwaps.add([t[0], t[1]]);
-    }
-  }
-
-  int mapSlot(int slot) {
-    var m = slot;
-    for (final pair in busSwaps) {
-      final a = pair[0];
-      final b = pair[1];
-      if (m == a) {
-        m = b;
-      } else if (m == b) {
-        m = a;
-      }
-    }
-    return m;
-  }
-
   final aliveMafiaMemberCount =
       players.where((p) => p.alive && p.role == GameRole.mafiaMember).length;
-
-  final sealedSlots = <int>{};
-  for (final h in players.where(
-    (p) => p.alive && (p.role == GameRole.hostess || p.role == GameRole.prostitute),
-  )) {
-    final t = parseTargets(game.nightActionTargets[h.slot]);
-    if (t.isNotEmpty) {
-      sealedSlots.add(mapSlot(t.first));
-    }
-  }
 
   bool isSealed(Player p) {
     if (p.role == GameRole.busDriver) return false;
     if (p.role == GameRole.mafiaMember && aliveMafiaMemberCount >= 2) return false;
-    return sealedSlots.contains(p.slot);
+    return plan.sealedSlots.contains(p.slot);
   }
 
-  /// --- 야간 킬 행동 로그 (마피아 / 자경 / 연살) ---
   final logLines = <String>[];
+
+  if (plan.witchControlledActorSlot != null &&
+      plan.witchForcedAbilityTargetRaw != null) {
+    logLines.add(
+      '마녀: ${displayNameSlot(plan.witchControlledActorSlot!)}의 단일 대상 능력 첫 지목을 '
+      '${displayNameSlot(plan.witchForcedAbilityTargetRaw!)}(으)로 강제함',
+    );
+  }
 
   void logKillRole(GameRole role, Player? actor) {
     if (actor == null) {
       logLines.add('${role.label}: 해당 직업 없음');
       return;
     }
-    final raw = parseTargets(game.nightActionTargets[actor.slot]);
+    final raw = plan.effectiveTargetsForSlot(actor.slot, actor.role);
     if (raw.isEmpty) {
       logLines.add('${role.label}: 대상 미지정(시도 없음)');
       return;
@@ -109,7 +94,7 @@ NightResolutionReport applyNightResolution(HostGame game) {
       logLines.add('${role.label}: 잔여 횟수 없음(시도 없음)');
       return;
     }
-    final resolved = mapSlot(raw.first);
+    final resolved = plan.mapSlot(raw.first);
     logLines.add('${role.label}: 시도함 → 대상 ${displayNameSlot(resolved)}');
   }
 
@@ -135,30 +120,51 @@ NightResolutionReport applyNightResolution(HostGame game) {
   }
   logKillRole(GameRole.vigilante, vigActor);
 
+  Player? zombieActor;
+  int? zombieMarkResolved;
+  for (final z in players.where((x) => x.alive && x.role == GameRole.zombie)) {
+    if (isSealed(z)) continue;
+    final raw = plan.effectiveTargetsForSlot(z.slot, z.role);
+    if (raw.isEmpty) continue;
+    zombieActor = z;
+    zombieMarkResolved = plan.mapSlot(raw.first);
+    logLines.add(
+      '좀비: ${displayNameSlot(zombieMarkResolved)}에게 표식(사망 시 좀비로 부활)',
+    );
+    break;
+  }
+
   final actionLogBlock = logLines.isEmpty
       ? ''
-      : '[야간 킬 행동]\n${logLines.join('\n')}';
+      : '[야간 행동]\n${logLines.join('\n')}';
 
-  /// (해결된 피해 슬롯, 공격자 플레이어 슬롯)
+  final vigSim = <int, int>{
+    for (final p in players.where((x) => x.alive && x.role == GameRole.vigilante))
+      p.slot: p.vigilanteKillsLeft,
+  };
+
   final killEvents = <List<int>>[];
 
   void tryAddKill(Player attacker, GameRole attackKind) {
     if (!attacker.alive) return;
     if (isSealed(attacker)) return;
-    if (attackKind == GameRole.vigilante && attacker.vigilanteKillsLeft <= 0) return;
 
-    final raw = parseTargets(game.nightActionTargets[attacker.slot]);
+    final raw = plan.effectiveTargetsForSlot(attacker.slot, attacker.role);
     if (raw.isEmpty) return;
-    final resolved = mapSlot(raw.first);
+    final resolved = plan.mapSlot(raw.first);
     final target = bySlot(resolved);
     if (target == null || !target.alive) return;
     if (target.role == GameRole.don) return;
 
-    killEvents.add([resolved, attacker.slot]);
     if (attackKind == GameRole.vigilante) {
-      attacker.vigilanteKillsLeft =
-          (attacker.vigilanteKillsLeft - 1).clamp(0, 999);
+      final left = vigSim[attacker.slot] ?? 0;
+      if (left <= 0) return;
+      killEvents.add([resolved, attacker.slot]);
+      vigSim[attacker.slot] = (left - 1).clamp(0, 999);
+      return;
     }
+
+    killEvents.add([resolved, attacker.slot]);
   }
 
   if (mafiaActor != null) {
@@ -180,9 +186,9 @@ NightResolutionReport applyNightResolution(HostGame game) {
   int? doctorHealSlot;
   for (final doc in players.where((p) => p.alive && p.role == GameRole.doctor)) {
     if (isSealed(doc)) continue;
-    final raw = parseTargets(game.nightActionTargets[doc.slot]);
+    final raw = plan.effectiveTargetsForSlot(doc.slot, doc.role);
     if (raw.isEmpty) continue;
-    doctorHealSlot = mapSlot(raw.first);
+    doctorHealSlot = plan.mapSlot(raw.first);
     break;
   }
 
@@ -208,44 +214,6 @@ NightResolutionReport applyNightResolution(HostGame game) {
     return '야간 킬로 사망했습니다.';
   }
 
-  /// 피해자 서술 (사망 처리 전 상태 기준 이름)
-  final victimParagraphs = <String>[];
-  final victimSlotsOrdered = killCount.keys.toList()..sort();
-
-  for (final slot in victimSlotsOrdered) {
-    final count = killCount[slot]!;
-    final target = bySlot(slot);
-    if (target == null || !target.alive) continue;
-    if (target.role == GameRole.don) continue;
-
-    final name = displayName(target);
-    final healedHere = doctorHealSlot == slot;
-
-    if (count >= 2) {
-      if (healedHere) {
-        victimParagraphs.add(
-          '$name이 여러번 습격 당하였습니다.\n의사의 노력에도 $name은 사망하였습니다.',
-        );
-      } else {
-        victimParagraphs.add(
-          '$name이 여러번 습격 당하였습니다.\n대상은 사망하였습니다.',
-        );
-      }
-      continue;
-    }
-
-    // count == 1
-    if (healedHere) {
-      victimParagraphs.add(
-        '$name이 습격 당하였습니다.\n그러나 의사의 도움으로 $name은 살아남았습니다.',
-      );
-    } else {
-      victimParagraphs.add(
-        '$name이 습격 당하였습니다.\n대상은 사망하였습니다.',
-      );
-    }
-  }
-
   final pendingDeaths = <int, String>{};
 
   for (final entry in killCount.entries) {
@@ -264,7 +232,6 @@ NightResolutionReport applyNightResolution(HostGame game) {
     }
   }
 
-  /// 군인 동귀어진: 군인이 킬로 사망하면 공격자도 사망(마피아 1명만). 의사가 공격자를 치료하면 공격자 생존.
   final soldierMutualParagraphs = <String>[];
   if (pendingDeaths.keys.any((s) => bySlot(s)?.role == GameRole.soldier)) {
     var mafiaAdded = false;
@@ -301,7 +268,93 @@ NightResolutionReport applyNightResolution(HostGame game) {
     }
   }
 
-  for (final entry in pendingDeaths.entries) {
+  // 좀비 부활은 킬 1건일 때만 유효 — 의사 규칙과 동일.
+  // 같은 밤 자경단원·연쇄살인마 등 추가 킬이 겹치면 사망 처리.
+  final reviveAsZombieSlots = <int>{};
+  if (zombieMarkResolved != null &&
+      pendingDeaths.containsKey(zombieMarkResolved) &&
+      (killCount[zombieMarkResolved] ?? 0) == 1) {
+    reviveAsZombieSlots.add(zombieMarkResolved);
+    pendingDeaths.remove(zombieMarkResolved);
+  }
+
+  final victimParagraphs = <String>[];
+  final victimSlotsOrdered = killCount.keys.toList()..sort();
+
+  for (final slot in victimSlotsOrdered) {
+    final count = killCount[slot]!;
+    final target = bySlot(slot);
+    if (target == null || !target.alive) continue;
+    if (target.role == GameRole.don) continue;
+
+    final name = displayName(target);
+    final healedHere = doctorHealSlot == slot;
+
+    if (reviveAsZombieSlots.contains(slot)) {
+      final marker = zombieActor == null ? '좀비' : displayName(zombieActor);
+      victimParagraphs.add(
+        '($name에게만 전달)\n'
+        '당신은 습격을 받아 사망 판정을 받았습니다.\n'
+        '좀비($marker)가 당신에게 남긴 표식 때문에 당신은 좀비로 되살아났습니다.',
+      );
+      continue;
+    }
+
+    if (count >= 2) {
+      if (healedHere) {
+        victimParagraphs.add(
+          '$name이 여러번 습격 당하였습니다.\n의사의 노력에도 $name은 사망하였습니다.',
+        );
+      } else {
+        victimParagraphs.add(
+          '$name이 여러번 습격 당하였습니다.\n대상은 사망하였습니다.',
+        );
+      }
+      continue;
+    }
+
+    if (healedHere) {
+      victimParagraphs.add(
+        '$name이 습격 당하였습니다.\n그러나 의사의 도움으로 $name은 살아남았습니다.',
+      );
+    } else {
+      victimParagraphs.add(
+        '$name이 습격 당하였습니다.\n대상은 사망하였습니다.',
+      );
+    }
+  }
+
+  final allParagraphs = [...victimParagraphs, ...soldierMutualParagraphs];
+
+  return _NightComputed(
+    actionLogBlock: actionLogBlock,
+    paragraphs: allParagraphs,
+    pendingDeaths: pendingDeaths,
+    reviveAsZombieSlots: reviveAsZombieSlots,
+    vigilanteKillsAfter: vigSim,
+  );
+}
+
+/// 좀비 표식이 실제로 부활까지 이어지는지(이번 밤 킬로 해당 슬롯이 사망 처리되는지).
+/// [resolvedMarkedSlot]은 버스 등 반영 후 슬롯([buildNightTargetPlan]과 동일).
+bool zombieMarkedVictimRevivesTonight(HostGame game, int resolvedMarkedSlot) {
+  final c = _computeNight(game);
+  return c.reviveAsZombieSlots.contains(resolvedMarkedSlot);
+}
+
+/// 밤 종료 시 야간 킬·의사·좀비 부활·중복 킬·대부 면역·군인 동귀어진을 반영해 [Player.alive]·직업을 갱신한다.
+NightResolutionReport applyNightResolution(HostGame game) {
+  final c = _computeNight(game);
+  final players = game.players;
+
+  Player? bySlot(int slot) {
+    for (final p in players) {
+      if (p.slot == slot) return p;
+    }
+    return null;
+  }
+
+  for (final entry in c.pendingDeaths.entries) {
     final p = bySlot(entry.key);
     if (p != null && p.alive) {
       p.deathCause = entry.value;
@@ -309,10 +362,23 @@ NightResolutionReport applyNightResolution(HostGame game) {
     }
   }
 
-  final allParagraphs = [...victimParagraphs, ...soldierMutualParagraphs];
+  for (final slot in c.reviveAsZombieSlots) {
+    final p = bySlot(slot);
+    if (p != null && p.alive) {
+      p.role = GameRole.zombie;
+      p.deathCause = null;
+    }
+  }
+
+  for (final entry in c.vigilanteKillsAfter.entries) {
+    final p = bySlot(entry.key);
+    if (p != null && p.role == GameRole.vigilante) {
+      p.vigilanteKillsLeft = entry.value;
+    }
+  }
 
   return NightResolutionReport(
-    paragraphs: allParagraphs,
-    actionLogBlock: actionLogBlock,
+    paragraphs: c.paragraphs,
+    actionLogBlock: c.actionLogBlock,
   );
 }

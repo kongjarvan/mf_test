@@ -14,9 +14,19 @@ enum GameRole {
   recruit,
   busDriver,
   serialKiller,
+  witch,
+  zombie,
 }
 
-enum Faction { none, mafia, citizen, neutral }
+enum Faction {
+  none,
+  mafia,
+  citizen,
+  neutral,
+
+  /// 마피아·시민·중립과 별도. 직업 `좀비`만 이 진영에 속한다.
+  zombie,
+}
 
 extension GameRoleX on GameRole {
   String get label => switch (this) {
@@ -34,6 +44,8 @@ extension GameRoleX on GameRole {
         GameRole.recruit => '신병',
         GameRole.busDriver => '버스기사',
         GameRole.serialKiller => '연쇄 살인마',
+        GameRole.witch => '마녀',
+        GameRole.zombie => '좀비',
       };
 
   Faction get faction => switch (this) {
@@ -43,7 +55,8 @@ extension GameRoleX on GameRole {
         GameRole.mafiaMember ||
         GameRole.prostitute =>
           Faction.mafia,
-        GameRole.serialKiller => Faction.neutral,
+        GameRole.serialKiller || GameRole.witch => Faction.neutral,
+        GameRole.zombie => Faction.zombie,
         _ => Faction.citizen,
       };
 }
@@ -64,4 +77,6 @@ const List<GameRole> kGameRolePickerOrder = [
   GameRole.recruit,
   GameRole.busDriver,
   GameRole.serialKiller,
+  GameRole.witch,
+  GameRole.zombie,
 ];

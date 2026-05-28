@@ -3,10 +3,13 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../models/game_role.dart';
+import '../models/game_weather.dart';
+import '../utils/weather_rules.dart';
 import '../models/host_game.dart';
 import '../models/player.dart';
+import '../widgets/roster_seat_display_mode.dart';
 
-/// 낮: 인원 현황, 날씨(플레이스홀더), 처형 대상 선택, 밤으로 이동.
+/// 낮: 인원 현황, 자동 날씨, 처형 대상 선택, 밤으로 이동.
 class DayScreen extends StatefulWidget {
   const DayScreen({
     super.key,
@@ -26,25 +29,9 @@ class DayScreen extends StatefulWidget {
 }
 
 class _DayScreenState extends State<DayScreen> {
-  late final TextEditingController _weatherCtrl;
-  bool _showNamesOnSeats = false;
+  RosterSeatDisplayMode _seatDisplayMode = RosterSeatDisplayMode.slotAndName;
 
   HostGame get _g => widget.game;
-
-  @override
-  void initState() {
-    super.initState();
-    _weatherCtrl = TextEditingController(text: _g.weatherNote);
-    _weatherCtrl.addListener(() {
-      _g.weatherNote = _weatherCtrl.text;
-    });
-  }
-
-  @override
-  void dispose() {
-    _weatherCtrl.dispose();
-    super.dispose();
-  }
 
   void _invalidateExecutionIfDead() {
     final c = _g.executionDayChoice;
@@ -62,14 +49,21 @@ class _DayScreenState extends State<DayScreen> {
   }
 
   String _seatLabel(Player p) {
-    if (!_showNamesOnSeats) return '${p.slot}';
-    final name = p.name.trim();
-    return name.isEmpty ? '${p.slot}번' : name;
+    switch (_seatDisplayMode) {
+      case RosterSeatDisplayMode.slotAndName:
+        final name = p.name.trim();
+        return name.isEmpty ? '${p.slot}번' : '${p.slot}번 $name';
+      case RosterSeatDisplayMode.roleLabel:
+        return _g.formatRoleLabel(p.role);
+    }
   }
 
   Color _roleColor(Player p, ThemeData theme) {
     if (p.role == GameRole.serialKiller) {
       return Colors.pink;
+    }
+    if (p.role.faction == Faction.zombie) {
+      return const Color(0xFF6D4C41);
     }
     if (p.role.faction == Faction.mafia) {
       return Colors.red;
@@ -197,13 +191,11 @@ class _DayScreenState extends State<DayScreen> {
                 icon: const Icon(Icons.article_outlined),
               ),
               IconButton(
-                tooltip: _showNamesOnSeats ? '번호로 보기' : '이름으로 보기',
+                tooltip: _seatDisplayMode.tooltipNext,
                 onPressed: () {
-                  setState(() => _showNamesOnSeats = !_showNamesOnSeats);
+                  setState(() => _seatDisplayMode = _seatDisplayMode.next);
                 },
-                icon: Icon(
-                  _showNamesOnSeats ? Icons.tag : Icons.badge_outlined,
-                ),
+                icon: Icon(_seatDisplayMode.icon),
               ),
             ],
           ),
@@ -299,18 +291,40 @@ class _DayScreenState extends State<DayScreen> {
           Text('날씨', style: theme.textTheme.titleMedium),
           const SizedBox(height: 4),
           Text(
-            '날씨 규칙이 정해지면 여기에 연결할 예정입니다.',
+            '생존 진영 인원에 따라 자동으로 정해집니다. 우선순위: 안개 → 눈 → 비 → 맑은 날.',
             style: theme.textTheme.bodySmall?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
             ),
           ),
           const SizedBox(height: 8),
-          TextField(
-            controller: _weatherCtrl,
-            maxLines: 2,
+          InputDecorator(
             decoration: const InputDecoration(
-              hintText: '임시 메모 (규칙 확정 후 대체)',
+              labelText: '오늘 날씨 (자동)',
               border: OutlineInputBorder(),
+            ),
+            child: Text(
+              _g.automaticWeather.label,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _g.automaticWeather.biasHint,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            weatherBiasConditionSummary(
+              _g.automaticWeather,
+              WeatherFactionCounts.fromGame(_g),
+            ),
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurface,
+              height: 1.35,
             ),
           ),
           const SizedBox(height: 20),

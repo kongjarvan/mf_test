@@ -19,7 +19,19 @@ const List<GameRole> kStandardTwelveUniqueRoles = [
   GameRole.serialKiller,
 ];
 
-/// 13~14인일 때만 중복 허용용 풀(랜덤 선택).
+/// 13인 랜덤 배정: 12인 직업 + 좀비 (서로 겹치지 않는 13직).
+const List<GameRole> kStandardThirteenUniqueRoles = [
+  ...kStandardTwelveUniqueRoles,
+  GameRole.zombie,
+];
+
+/// 14인 랜덤 배정: 13인 직업 + 마녀 (서로 겹치지 않는 14직).
+const List<GameRole> kStandardFourteenUniqueRoles = [
+  ...kStandardThirteenUniqueRoles,
+  GameRole.witch,
+];
+
+/// 인원이 해당 일반 풀보다 많거나·미배정 슬롯이 풀 소진 후일 때 중복 허용용 풀.
 const List<GameRole> kDuplicateExtraRoles = [
   GameRole.mafiaMember,
   GameRole.mafiaMember,
@@ -40,8 +52,11 @@ const List<String> _kRandomNamePool = [
 ];
 
 /// 이름이 비었거나 직업이 미배정인 슬롯에 랜덤 이름·직업을 채운다.
-/// 직업: 이미 배정된 직업은 제외하고, 남는 슬롯에는 12종 중 겹치지 않게 배분.
-/// 12명을 넘기면 남는 인원은 [kDuplicateExtraRoles]에서 무작위(중복 가능).
+/// 직업: 인원에 따라 고유 풀에서 겹치지 않게 배분한다.
+/// - **12명 이하**: [kStandardTwelveUniqueRoles]
+/// - **13명**: [kStandardThirteenUniqueRoles] (12직 + 좀비)
+/// - **14명**: [kStandardFourteenUniqueRoles] (13직 + 마녀)
+/// 풀을 다 쓴 뒤 남는 슬롯은 [kDuplicateExtraRoles]에서 무작위(중복 가능).
 void applyRandomSetup(HostGame game, [Random? random]) {
   final rng = random ?? Random();
 
@@ -65,7 +80,14 @@ void applyRandomSetup(HostGame game, [Random? random]) {
   final need = game.players.where((p) => p.role == GameRole.unassigned).toList()
     ..sort((a, b) => a.slot.compareTo(b.slot));
 
-  var pool = kStandardTwelveUniqueRoles
+  final playerCount = game.players.length;
+  final List<GameRole> uniquePoolSource = playerCount >= 14
+      ? kStandardFourteenUniqueRoles
+      : playerCount == 13
+          ? kStandardThirteenUniqueRoles
+          : kStandardTwelveUniqueRoles;
+
+  var pool = uniquePoolSource
       .where((r) => !alreadyTaken.contains(r))
       .toList()
     ..shuffle(rng);
