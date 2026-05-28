@@ -35,6 +35,7 @@ class _ModeratorFlowState extends State<ModeratorFlow> {
   }
 
   void _goToNightFromDay() {
+    VictoryResult? victory;
     setState(() {
       final exec = _game.executionDayChoice;
       if (exec > 0) {
@@ -46,14 +47,23 @@ class _ModeratorFlowState extends State<ModeratorFlow> {
           }
         }
       }
+      victory = _game.checkVictory();
       _game.nightActionTargets.clear();
       _game.nightGuidanceText = '';
       _phase = ModeratorPhase.night;
     });
+
+    if (victory != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _showVictoryPopup(victory!);
+      });
+    }
   }
 
   void _goToDayFromNight() {
     late NightResolutionReport nightReport;
+    VictoryResult? victory;
     setState(() {
       nightReport = applyNightResolution(_game);
 
@@ -101,6 +111,8 @@ class _ModeratorFlowState extends State<ModeratorFlow> {
       _game.day++;
       _game.executionDayChoice = 0;
       _phase = ModeratorPhase.day;
+
+      victory = _game.checkVictory();
     });
 
     final String nightKillPopupText;
@@ -126,13 +138,40 @@ class _ModeratorFlowState extends State<ModeratorFlow> {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
+              onPressed: () {
+                Navigator.of(ctx).pop();
+                if (victory != null) _showVictoryPopup(victory!);
+              },
               child: const Text('확인'),
             ),
           ],
         ),
       );
     });
+  }
+
+  void _showVictoryPopup(VictoryResult victory) {
+    final winnerText = victory.winners.join(' · ');
+    final title = victory.winners.length == 1 ? '$winnerText 승리!' : '$winnerText 공동 승리!';
+
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('🎉 게임 종료'),
+        content: Text(
+          title,
+          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          textAlign: TextAlign.center,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('확인'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _confirmReset() async {

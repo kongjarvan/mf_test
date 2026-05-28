@@ -36,19 +36,23 @@ class _NightScreenState extends State<NightScreen> {
   HostGame get _g => widget.game;
 
   Color _roleColor(Player p) {
-    if (p.role == GameRole.serialKiller) return Colors.pink;
-    if (p.role.faction == Faction.zombie) return const Color(0xFF6D4C41);
-    if (p.role.faction == Faction.mafia) return Colors.red;
-    if (p.role.faction == Faction.citizen) return Colors.green;
-    return Colors.white70;
+    switch (p.role.faction) {
+      case Faction.mafia: return Colors.red;
+      case Faction.citizen: return Colors.lightGreen;
+      case Faction.neutral: return Colors.deepPurple[200]!;
+      case Faction.zombie: return Colors.grey[400]!;
+      case Faction.none: return Colors.white70;
+    }
   }
 
   Color _roleTextColor(GameRole role) {
-    if (role == GameRole.serialKiller) return Colors.pink;
-    if (role.faction == Faction.zombie) return const Color(0xFF8D6E63);
-    if (role.faction == Faction.mafia) return Colors.red;
-    if (role.faction == Faction.citizen) return Colors.green;
-    return Colors.white;
+    switch (role.faction) {
+      case Faction.mafia: return Colors.red;
+      case Faction.citizen: return Colors.lightGreen;
+      case Faction.neutral: return Colors.deepPurple[200]!;
+      case Faction.zombie: return Colors.grey[400]!;
+      case Faction.none: return Colors.white;
+    }
   }
 
   List<int> _parseNightTargets(Player p) {
@@ -489,7 +493,7 @@ class _NightScreenState extends State<NightScreen> {
                     ),
                     items: [
                       const DropdownMenuItem<int?>(value: null, child: Text('선택 안 함')),
-                      ..._g.players.map(
+                      ..._g.players.where((t) => t.alive).map(
                         (target) => DropdownMenuItem<int?>(
                           value: target.slot,
                           child: Text(
@@ -521,7 +525,7 @@ class _NightScreenState extends State<NightScreen> {
                     ),
                     items: [
                       const DropdownMenuItem<int?>(value: null, child: Text('선택 안 함')),
-                      ..._g.players.map(
+                      ..._g.players.where((t) => t.alive).map(
                         (target) => DropdownMenuItem<int?>(
                           value: target.slot,
                           enabled: target.slot !=
@@ -554,7 +558,7 @@ class _NightScreenState extends State<NightScreen> {
                     ),
                     items: [
                       const DropdownMenuItem<int?>(value: null, child: Text('선택 안 함')),
-                      ..._g.players.map(
+                      ..._g.players.where((t) => t.alive).map(
                         (target) => DropdownMenuItem<int?>(
                           value: target.slot,
                           child: Text(
@@ -586,7 +590,7 @@ class _NightScreenState extends State<NightScreen> {
                     ),
                     items: [
                       const DropdownMenuItem<int?>(value: null, child: Text('선택 안 함')),
-                      ..._g.players.map(
+                      ..._g.players.where((t) => t.alive).map(
                         (target) => DropdownMenuItem<int?>(
                           value: target.slot,
                           enabled: target.slot !=
@@ -619,7 +623,7 @@ class _NightScreenState extends State<NightScreen> {
                     ),
                     items: [
                       const DropdownMenuItem<int?>(value: null, child: Text('선택 안 함')),
-                      ..._g.players.map(
+                      ..._g.players.where((t) => t.alive).map(
                         (target) => DropdownMenuItem<int?>(
                           value: target.slot,
                           child: Text(
@@ -779,7 +783,9 @@ class _NightScreenState extends State<NightScreen> {
                                       overflow: TextOverflow.ellipsis,
                                       style: theme.textTheme.labelLarge?.copyWith(
                                         fontWeight: FontWeight.w700,
-                                        color: Colors.white,
+                                        color: _seatDisplayMode == RosterSeatDisplayMode.roleLabel && p.alive
+                                            ? _roleColor(p)
+                                            : Colors.white,
                                       ),
                                     ),
                                   ),

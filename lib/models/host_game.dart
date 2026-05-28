@@ -1,6 +1,13 @@
 import 'game_role.dart';
 import 'player.dart';
 
+class VictoryResult {
+  const VictoryResult({required this.winners});
+
+  /// 동시 승리 우선순위 순으로 정렬된 승리 세력 이름 목록.
+  final List<String> winners;
+}
+
 /// 사회자 기록용 세션 상태. 영속 저장은 하지 않는다.
 class HostGame {
   HostGame({
@@ -80,6 +87,42 @@ class HostGame {
   }
 
   int get aliveCount => players.where((p) => p.alive).length;
+
+  /// 현재 생존 상태 기준으로 승리 조건을 판정한다.
+  /// 아직 게임이 끝나지 않았으면 null 반환.
+  VictoryResult? checkVictory() {
+    final aliveMafia = countAliveByFaction(Faction.mafia);
+    final aliveCitizen = countAliveByFaction(Faction.citizen);
+    final aliveNeutral = countAliveByFaction(Faction.neutral);
+    final aliveZombie = countAliveByFaction(Faction.zombie);
+    final total = aliveCount;
+
+    // 시민팀: 시민 외 모든 세력 사망
+    final citizenWins = aliveMafia == 0 && aliveNeutral == 0 && aliveZombie == 0;
+    // 마피아팀: 생존 마피아 수 ≥ 나머지 모든 세력(시민·중립·좀비) 합
+    final mafiaWins =
+        aliveMafia > 0 && aliveMafia >= (aliveCitizen + aliveNeutral + aliveZombie);
+
+    if (!citizenWins && !mafiaWins) return null;
+
+    // 좀비는 최우선: 조건 충족 시 단독 승리(연쇄살인마·마녀·마피아·시민 모두 제침).
+    // 연쇄살인마·마녀는 좀비가 없을 때 트리거 세력과 공동 승리.
+    final zombieWins = aliveZombie > 0 && aliveZombie * 2 >= total;
+
+    final winners = <String>[];
+    if (zombieWins) {
+      winners.add('좀비 세력');
+    } else {
+      final skWins = players.any((p) => p.alive && p.role == GameRole.serialKiller);
+      final witchWins = players.any((p) => p.alive && p.role == GameRole.witch);
+      if (skWins) winners.add('연쇄 살인마');
+      if (witchWins) winners.add('마녀');
+      if (mafiaWins) winners.add('마피아팀');
+      if (citizenWins) winners.add('시민팀');
+    }
+
+    return VictoryResult(winners: winners);
+  }
 
   /// 밤으로 갈 수 있는지(처형 결정이 확정되었는지).
   bool get canGoToNightFromDay {

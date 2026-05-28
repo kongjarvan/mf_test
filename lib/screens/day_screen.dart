@@ -59,19 +59,18 @@ class _DayScreenState extends State<DayScreen> {
   }
 
   Color _roleColor(Player p, ThemeData theme) {
-    if (p.role == GameRole.serialKiller) {
-      return Colors.pink;
+    switch (p.role.faction) {
+      case Faction.mafia:
+        return Colors.red;
+      case Faction.citizen:
+        return Colors.green;
+      case Faction.neutral:
+        return Colors.deepPurple;
+      case Faction.zombie:
+        return Colors.grey;
+      case Faction.none:
+        return theme.colorScheme.onSurface;
     }
-    if (p.role.faction == Faction.zombie) {
-      return const Color(0xFF6D4C41);
-    }
-    if (p.role.faction == Faction.mafia) {
-      return Colors.red;
-    }
-    if (p.role.faction == Faction.citizen) {
-      return Colors.green;
-    }
-    return theme.colorScheme.onSurface;
   }
 
   Future<void> _showPlayerDetail(Player p) async {
@@ -269,7 +268,9 @@ class _DayScreenState extends State<DayScreen> {
                                       style: theme.textTheme.labelLarge?.copyWith(
                                         fontWeight: FontWeight.w700,
                                         color: p.alive
-                                            ? theme.colorScheme.onPrimaryContainer
+                                            ? (_seatDisplayMode == RosterSeatDisplayMode.roleLabel
+                                                ? _roleColor(p, theme)
+                                                : theme.colorScheme.onPrimaryContainer)
                                             : const Color(0xFF616161),
                                       ),
                                     ),
