@@ -293,9 +293,7 @@ _NightComputed _computeNight(HostGame game) {
     if (reviveAsZombieSlots.contains(slot)) {
       final marker = zombieActor == null ? '좀비' : displayName(zombieActor);
       victimParagraphs.add(
-        '($name에게만 전달)\n'
-        '당신은 습격을 받아 사망 판정을 받았습니다.\n'
-        '좀비($marker)가 당신에게 남긴 표식 때문에 당신은 좀비로 되살아났습니다.',
+        '$name이 습격 당하였습니다.\n그러나 의사의 도움으로 $name은 살아남았습니다.',
       );
       continue;
     }

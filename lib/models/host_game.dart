@@ -97,11 +97,11 @@ class HostGame {
     final aliveZombie = countAliveByFaction(Faction.zombie);
     final total = aliveCount;
 
-    // 시민팀: 시민 외 모든 세력 사망
+    // 시민팀: 마피아·중립·좀비 전원 사망
     final citizenWins = aliveMafia == 0 && aliveNeutral == 0 && aliveZombie == 0;
-    // 마피아팀: 생존 마피아 수 ≥ 나머지 모든 세력(시민·중립·좀비) 합
+    // 마피아팀: 생존 마피아 수 ≥ 시민·중립 합 (좀비는 별도 진영 — 계산 제외)
     final mafiaWins =
-        aliveMafia > 0 && aliveMafia >= (aliveCitizen + aliveNeutral + aliveZombie);
+        aliveMafia > 0 && aliveMafia >= (aliveCitizen + aliveNeutral);
 
     if (!citizenWins && !mafiaWins) return null;
 
